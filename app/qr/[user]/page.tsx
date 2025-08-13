@@ -10,8 +10,9 @@ function isUUID(v: string) {
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
 }
 
-export default async function QRPage({ params }: { params: Params }) {
-  const userId = params.user;
+// Página de QR (Server Component): firma el token y genera el QR
+export default async function QRPage({ params }: { params: Promise<Params> }) {
+  const { user: userId } = await params;
 
   if (!userId || !isUUID(userId)) {
     return (
@@ -28,23 +29,34 @@ export default async function QRPage({ params }: { params: Params }) {
 
   // Configuración
   const expMinutes = 5;
-  const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+  const secretStr = process.env.JWT_SECRET;
+  if (!secretStr) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-zinc-950 text-white">
+        <div className="max-w-md w-full rounded-2xl p-6 border border-rose-500/50 bg-rose-950/40">
+          <h1 className="text-xl font-semibold mb-2">QR — Error de configuración</h1>
+          <p className="opacity-80">Falta la variable de entorno <code>JWT_SECRET</code>.</p>
+        </div>
+      </div>
+    );
+  }
+  const secret = new TextEncoder().encode(secretStr);
 
-  // Generar token
+  // Generar token JWT corto (5 min) con el userId en "sub"
   const token = await new jose.SignJWT({})
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setExpirationTime(`${expMinutes}m`)
     .sign(secret);
 
-  // Construir URL de verificación
+  // URL pública de verificación (UI verde/rojo)
   const base = process.env.BASE_URL || "";
   const verifyUrl = `${base}/verify?t=${encodeURIComponent(token)}`;
 
-  // Generar imagen QR
+  // Generar imagen QR (Data URL)
   const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, scale: 8 });
 
-  // Calcular expiración
+  // Expiración (para el contador del cliente)
   const expiresAt = new Date(Date.now() + expMinutes * 60_000).toISOString();
 
   return (
@@ -79,7 +91,7 @@ export default async function QRPage({ params }: { params: Params }) {
         </div>
 
         <p className="mt-3 text-[11px] opacity-60">
-          El QR expira en 5 minutos. Regeneralo si el comercio lo pide.
+          El QR expira en {expMinutes} minutos. Regeneralo si el comercio lo pide.
         </p>
       </div>
     </div>
