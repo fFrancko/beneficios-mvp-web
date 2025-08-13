@@ -1,3 +1,4 @@
+export const runtime = "nodejs";       // <- fuerza Node (NO Edge)
 export const dynamic = "force-dynamic";
 
 import * as jose from "jose";
