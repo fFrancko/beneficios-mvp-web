@@ -4,32 +4,34 @@
 import { useEffect, useState } from "react";
 
 export default function Countdown({ expiresAt }: { expiresAt: string }) {
-  const [left, setLeft] = useState<number>(
-    () => new Date(expiresAt).getTime() - Date.now()
-  );
+  const [left, setLeft] = useState<number>(() => {
+    const t = new Date(expiresAt).getTime() - Date.now();
+    return t > 0 ? t : 0;
+  });
 
   useEffect(() => {
     const id = setInterval(() => {
-      setLeft(new Date(expiresAt).getTime() - Date.now());
+      setLeft((prev) => {
+        const next = prev - 1000;
+        return next > 0 ? next : 0;
+      });
     }, 1000);
     return () => clearInterval(id);
-  }, [expiresAt]);
+  }, []);
 
-  if (left < 0) {
-    return (
-      <div className="mt-3 text-rose-300">
-        Expirado. Pulsa <b>Regenerar</b> para obtener un QR nuevo.
-      </div>
-    );
-  }
-
-  const total = Math.max(0, left);
-  const mm = String(Math.floor(total / 1000 / 60)).padStart(2, "0");
-  const ss = String(Math.floor((total / 1000) % 60)).padStart(2, "0");
+  const mm = Math.floor(left / 60000)
+    .toString()
+    .padStart(2, "0");
+  const ss = Math.floor((left % 60000) / 1000)
+    .toString()
+    .padStart(2, "0");
 
   return (
-    <div className="mt-3 text-emerald-300">
-      Expira en <span className="tabular-nums font-semibold">{mm}:{ss}</span>
+    <div className="mt-3 text-sm opacity-80">
+      Expira en:{" "}
+      <span className="font-mono tabular-nums">
+        {mm}:{ss}
+      </span>
     </div>
   );
 }
