@@ -1,77 +1,63 @@
-// app/qr/[user]/page.tsx
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 import * as jose from "jose";
 import QRCode from "qrcode";
+import Link from "next/link";
 import Countdown from "./Countdown";
 
-type Params = { user: string };
-type MaybePromise<T> = T | Promise<T>;
-type PageInput =
-  | { params: Params }
-  | { params: Promise<Params> }
-  | { params: MaybePromise<Params> };
-
 function isUUID(v: string) {
-  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
-    v
-  );
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
 }
 
-export default async function QRPage(input: PageInput) {
-  // Normalizamos params (puede venir como objeto o como Promise en Next 15)
-  const params = "then" in input.params ? await input.params : input.params;
-  const userId = params?.user;
+type Input = { params?: any };
 
-  if (!userId || !isUUID(userId)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-zinc-950 text-white">
-        <div className="max-w-md w-full rounded-2xl p-6 border border-rose-500/50 bg-rose-950/40">
-          <h1 className="text-xl font-semibold mb-2">QR — Error</h1>
-          <p className="opacity-80">
-            El parámetro <code>user</code> no es un UUID válido.
-          </p>
-          <div className="mt-4">
-            <a
-              href="?r=1"
-              className="px-4 py-2 inline-block rounded-xl text-sm font-medium bg-white/10 hover:bg-white/15 border border-white/20"
-            >
-              Reintentar
-            </a>
+export default async function QRPage(input: Input) {
+  try {
+    // Params puede venir como objeto o como Promise en Next 15
+    const raw = input?.params;
+    const params = raw && typeof raw.then === "function" ? await raw : raw || {};
+    const userId: string | undefined = params?.user;
+
+    if (!userId || !isUUID(userId)) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6 bg-zinc-950 text-white">
+          <div className="max-w-md w-full rounded-2xl p-6 border border-rose-500/50 bg-rose-950/40">
+            <h1 className="text-xl font-semibold mb-2">QR — Error</h1>
+            <p className="opacity-80">El parámetro <code>user</code> no es un UUID válido.</p>
+            <div className="mt-4">
+              <Link href="/" className="px-4 py-2 rounded-xl text-sm font-medium bg-white/5 hover:bg-white/10 border border-white/20">
+                Inicio
+              </Link>
+            </div>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  // Configuración
-  const expMinutes = 5;
-  const base = process.env.BASE_URL || "";
-  const secretStr = process.env.JWT_SECRET;
-
-  // Guardas + generación
-  try {
-    if (!secretStr) {
-      throw new Error("Falta JWT_SECRET en variables de entorno");
+      );
     }
+
+    const expMinutes = 5;
+    const secretStr = process.env.JWT_SECRET;
+    const baseUrl = process.env.BASE_URL;
+
+    if (!secretStr || secretStr.length < 16) throw new Error("JWT_SECRET faltante o muy corto");
+    if (!baseUrl) throw new Error("BASE_URL faltante");
 
     const secret = new TextEncoder().encode(secretStr);
 
-    // 1) Firmar token
+    // firmamos el token por 5 minutos
     const token = await new jose.SignJWT({})
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(userId)
       .setExpirationTime(`${expMinutes}m`)
       .sign(secret);
 
-    // 2) URL de verificación
-    const verifyUrl = `${base}/verify?t=${encodeURIComponent(token)}`;
+    // URL a la UI pública de verificación (la que ya te funcionaba)
+    const verifyUrl = `${baseUrl}/verify?t=${encodeURIComponent(token)}`;
 
-    // 3) Generar QR (data URL)
+    // imagen del QR (data URL)
     const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, scale: 8 });
 
-    // 4) Calcular expiry para el contador
+    // vencimiento local
     const expiresAt = new Date(Date.now() + expMinutes * 60_000).toISOString();
 
     return (
@@ -81,11 +67,7 @@ export default async function QRPage(input: PageInput) {
 
           <div className="bg-white p-3 rounded-xl inline-block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={qrDataUrl}
-              alt="QR de verificación"
-              className="w-full h-auto rounded"
-            />
+            <img src={qrDataUrl} alt="QR de verificación" className="w-full h-auto rounded" />
           </div>
 
           <div className="mt-4 text-xs opacity-80 break-words">
@@ -95,18 +77,20 @@ export default async function QRPage(input: PageInput) {
           <Countdown expiresAt={expiresAt} />
 
           <div className="mt-5 flex gap-2 justify-center">
-            <a
-              href={`?regen=${Date.now()}`}
+            {/* Nada de onClick en Server Component: refrescamos con link */}
+            <Link
+              href={`/qr/${userId}?r=${Date.now()}`}
+              prefetch={false}
               className="px-4 py-2 rounded-xl text-sm font-medium bg-white/10 hover:bg-white/15 border border-white/20"
             >
               Regenerar
-            </a>
-            <a
+            </Link>
+            <Link
               href="/"
               className="px-4 py-2 rounded-xl text-sm font-medium bg-white/5 hover:bg-white/10 border border-white/20"
             >
               Inicio
-            </a>
+            </Link>
           </div>
 
           <p className="mt-3 text-[11px] opacity-60">
@@ -115,29 +99,22 @@ export default async function QRPage(input: PageInput) {
         </div>
       </div>
     );
-  } catch (err: any) {
-    // Render amigable (sin handlers de eventos desde el Server Component)
-    const digest = err?.digest || "";
-    const msg =
-      err?.message && typeof err.message === "string"
-        ? err.message
-        : "Ocurrió un error renderizando esta página.";
-
+  } catch (e: any) {
+    // guard de error elegante (evita página en blanco)
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-zinc-950 text-white">
         <div className="max-w-md w-full rounded-2xl p-6 border border-rose-500/50 bg-rose-950/40">
           <h1 className="text-xl font-semibold mb-2">QR — Error</h1>
-          <p className="opacity-80">{msg}</p>
-          {digest ? (
-            <p className="mt-2 text-xs opacity-50">Digest: {digest}</p>
-          ) : null}
+          <p className="opacity-80">
+            Ocurrió un error renderizando esta página.
+          </p>
+          <pre className="mt-3 text-xs opacity-70 whitespace-pre-wrap">
+            {String(e?.message ?? e)}
+          </pre>
           <div className="mt-4">
-            <a
-              href={`?retry=${Date.now()}`}
-              className="px-4 py-2 inline-block rounded-xl text-sm font-medium bg-white/10 hover:bg-white/15 border border-white/20"
-            >
-              Reintentar
-            </a>
+            <Link href="/" className="px-4 py-2 rounded-xl text-sm font-medium bg-white/5 hover:bg-white/10 border border-white/20">
+              Volver al inicio
+            </Link>
           </div>
         </div>
       </div>
