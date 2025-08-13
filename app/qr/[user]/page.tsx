@@ -1,4 +1,3 @@
-// app/qr/[user]/page.tsx
 export const dynamic = "force-dynamic";
 
 import * as jose from "jose";
@@ -27,23 +26,25 @@ export default async function QRPage({ params }: { params: Params }) {
     );
   }
 
-  // 1) Firmar token en el servidor (5 minutos)
+  // Configuración
   const expMinutes = 5;
   const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+
+  // Generar token
   const token = await new jose.SignJWT({})
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setExpirationTime(`${expMinutes}m`)
     .sign(secret);
 
-  // 2) URL de verificación
+  // Construir URL de verificación
   const base = process.env.BASE_URL || "";
   const verifyUrl = `${base}/verify?t=${encodeURIComponent(token)}`;
 
-  // 3) Generar imagen QR
+  // Generar imagen QR
   const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, scale: 8 });
 
-  // 4) Expiración para el contador (cliente)
+  // Calcular expiración
   const expiresAt = new Date(Date.now() + expMinutes * 60_000).toISOString();
 
   return (
