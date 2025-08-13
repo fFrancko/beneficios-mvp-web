@@ -1,20 +1,23 @@
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-import * as jose from "jose";
-import QRCode from "qrcode";
 import ClientQR from "./client-qr";
+import { issueQR } from "./actions";
+
+type Params = { user: string };
 
 function isUUID(v: string) {
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
 }
 
-// Nota: evitamos tipos de Next 15 para no romper el build.
-// params puede venir como objeto o Promise; lo manejamos defensivo.
-export default async function Page(input: any) {
-  const rawParams = input?.params;
-  const params = (rawParams && typeof rawParams.then === "function") ? await rawParams : rawParams;
-  const userId = params?.user as string | undefined;
+// Next 15 a veces pasa params como Promise<Params>
+async function resolveParams(p: Params | Promise<Params>): Promise<Params> {
+  return (p && typeof (p as any)?.then === "function") ? (p as Promise<Params>) : (p as Params);
+}
+
+export default async function QRPage(input: { params: Params | Promise<Params> }) {
+  const { user } = await resolveParams(input.params);
+  const userId = user;
 
   if (!userId || !isUUID(userId)) {
     return (
@@ -29,30 +32,17 @@ export default async function Page(input: any) {
     );
   }
 
-  // Configuración inicial (5 minutos)
-  const expMinutes = 5;
-  const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
-
-  // Generar token inicial en el servidor
-  const token = await new jose.SignJWT({})
-    .setProtectedHeader({ alg: "HS256" })
-    .setSubject(userId)
-    .setExpirationTime(`${expMinutes}m`)
-    .sign(secret);
-
-  // URL /verify
-  const base = process.env.BASE_URL || "";
-  const verifyUrl = `${base}/verify?t=${encodeURIComponent(token)}`;
-
-  // PNG del QR (server)
-  const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, scale: 8 });
-
-  // Expiración ISO
-  const expiresAt = new Date(Date.now() + expMinutes * 60_000).toISOString();
+  // Primer QR (servidor)
+  const first = await issueQR(userId);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
-      <ClientQR initial={{ verifyUrl, qrDataUrl, expiresAt }} />
+      <ClientQR
+        userId={userId}
+        initialSrc={first.src}
+        initialVerifyUrl={first.verifyUrl}
+        initialExpiresAt={first.expiresAt}
+      />
     </div>
   );
 }
