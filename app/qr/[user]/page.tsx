@@ -1,4 +1,3 @@
-// app/qr/[user]/page.tsx
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -6,97 +5,115 @@ import * as jose from "jose";
 import QRCode from "qrcode";
 import Countdown from "./Countdown";
 
-/** Helper: valida UUID v4 */
+type Params = { user: string };
+
+// UUID simple
 function isUUID(v: string) {
-  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
-    v
-  );
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
 }
 
-/** Tarjeta de error amigable (no deja la pantalla en blanco) */
+// Tarjeta de error segura (no expone secretos)
 function ErrorCard({
   title = "QR — Error",
-  children,
+  message,
+  hint,
 }: {
   title?: string;
-  children: React.ReactNode;
+  message: string;
+  hint?: string;
 }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-zinc-950 text-white">
-      <div className="max-w-md w-full rounded-2xl p-6 border border-rose-500/50 bg-rose-950/40">
+      <div className="max-w-lg w-full rounded-2xl p-6 border border-rose-500/50 bg-rose-950/40">
         <h1 className="text-xl font-semibold mb-2">{title}</h1>
-        <div className="opacity-80">{children}</div>
-        <div className="mt-4 text-xs opacity-60">
-          Si el error persiste, revisá los Server Logs en Vercel.
+        <p className="opacity-90 whitespace-pre-wrap">{message}</p>
+        {hint && <p className="opacity-70 mt-3 text-sm">{hint}</p>}
+        <div className="mt-5">
+          <button
+            onClick={() => location.reload()}
+            className="px-4 py-2 rounded-xl text-sm font-medium bg-white/10 hover:bg-white/15 border border-white/20"
+          >
+            Reintentar
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-/**
- * Next 15: `params` llega como Promise.
- * Tipamos sin depender de PageProps para evitar issues de types.
- */
-export default async function QRPage(props: {
-  params: Promise<{ user: string }>;
+export default async function QRPage({
+  params,
+}: {
+  // En Next 15 a veces params es un Promise; lo tipamos laxo y resolvemos.
+  params: Params | Promise<Params>;
 }) {
   try {
-    // 1) leer params (await porque es Promise en Next 15)
-    const { user } = await props.params;
-    const userId = user;
+    // 1) Resolver params (soporta Promise y objeto directo)
+    const p = (await Promise.resolve(params)) as Params | undefined;
+    const userId = p?.user;
 
-    // 2) validar UUID
     if (!userId || !isUUID(userId)) {
       return (
-        <ErrorCard>
-          El parámetro <code>user</code> no es un UUID válido.
-        </ErrorCard>
+        <ErrorCard
+          message={`El parámetro "user" no es un UUID válido.\nRecibido: ${userId ?? "(vacío)"}`}
+          hint='Asegurate de visitar /qr/<UUID> por ejemplo: /qr/e36deab3-a184-43c6-9835-235f10e14759'
+        />
       );
     }
 
-    // 3) chequear variables de entorno
-    const expMinutes = 5;
-    const base = process.env.BASE_URL || "";
-    const jwtSecret = process.env.JWT_SECRET;
+    // 2) Variables y chequeos de entorno (no exponemos valores)
+    const secretStr = process.env.JWT_SECRET;
+    const vercelUrl = process.env.VERCEL_URL;
+    // BASE_URL preferida; fallback a VERCEL_URL
+    const baseFromEnv = process.env.BASE_URL?.trim();
+    const base =
+      (baseFromEnv && baseFromEnv.replace(/\/$/, "")) ||
+      (vercelUrl ? `https://${vercelUrl}` : "");
 
-    if (!jwtSecret || !base) {
-      // Log server‑side (visible en Vercel → Functions → Logs)
-      console.error("Faltan envs: JWT_SECRET y/o BASE_URL");
+    if (!secretStr) {
       return (
-        <ErrorCard>
-          Faltan variables de entorno requeridas: <code>JWT_SECRET</code> y/o{" "}
-          <code>BASE_URL</code>.
-        </ErrorCard>
+        <ErrorCard
+          message={`Variable JWT_SECRET no configurada en el entorno del servidor.`}
+          hint="Definila en Vercel → Project → Settings → Environment Variables (Production + Preview) y redeploy."
+        />
+      );
+    }
+    if (!base) {
+      return (
+        <ErrorCard
+          message={`No pude determinar BASE_URL.`}
+          hint={`Opciones:
+- Define BASE_URL en Vercel (p.ej. https://beneficios-mvp-web.vercel.app) y redeploy
+- o asegurate que VERCEL_URL esté presente (Vercel lo injecta en runtime).`}
+        />
       );
     }
 
-    const secret = new TextEncoder().encode(jwtSecret);
+    // 3) Firmar token JWT (exp 5 min)
+    const expMinutes = 5;
+    const secret = new TextEncoder().encode(secretStr);
 
-    // 4) generar token (EXP corto)
     const token = await new jose.SignJWT({})
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(userId)
       .setExpirationTime(`${expMinutes}m`)
       .sign(secret);
 
-    // 5) URL de verificación
+    // 4) URL de verificación y QR
     const verifyUrl = `${base}/verify?t=${encodeURIComponent(token)}`;
-
-    // 6) generar QR (Data URL)
     const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, scale: 8 });
 
-    // 7) fecha de expiración (cliente la usa para countdown)
+    // 5) Expiración para el contador
     const expiresAt = new Date(Date.now() + expMinutes * 60_000).toISOString();
 
-    // 8) render
-    /* eslint-disable @next/next/no-img-element */
+    // 6) UI
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
         <div className="w-full max-w-sm rounded-2xl p-5 border border-white/15 bg-black/40 shadow-2xl text-center">
           <div className="text-sm opacity-70 mb-2">MULTICLASICOS — Mi QR</div>
 
           <div className="bg-white p-3 rounded-xl inline-block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={qrDataUrl} alt="QR de verificación" className="w-full h-auto rounded" />
           </div>
 
@@ -121,19 +138,28 @@ export default async function QRPage(props: {
             </a>
           </div>
 
-          <p className="mt-3 text-[11px] opacity-60">
-            El QR expira en {expMinutes} minutos. Regeneralo si el comercio lo pide.
-          </p>
+          <p className="mt-3 text-[11px] opacity-60">El QR expira en 5 minutos. Regeneralo si el comercio lo pide.</p>
         </div>
       </div>
     );
-  } catch (err: any) {
-    // Cualquier excepción (jose, qrcode, etc.) cae acá y no te deja pantalla en blanco
-    console.error("QRPage error:", err?.message || err);
+  } catch (e: any) {
+    // Log completo al server (Vercel → Functions Logs)
+    console.error("QRPage render error:", e);
+    const digest = e?.digest || e?.message || "unknown";
+
+    // Diagnóstico útil pero seguro
+    const diag = [
+      `hasJWT=${Boolean(process.env.JWT_SECRET)}`,
+      `hasBASE=${Boolean(process.env.BASE_URL)}`,
+      `hasVERCEL_URL=${Boolean(process.env.VERCEL_URL)}`,
+      `node=${process.version}`,
+    ].join(" • ");
+
     return (
-      <ErrorCard>
-        Ocurrió un error inesperado al generar tu QR. Intenta nuevamente en un momento.
-      </ErrorCard>
+      <ErrorCard
+        message={`Ocurrió un error renderizando esta página.\nDigest/Mensaje: ${digest}`}
+        hint={`Chequeos rápidos → ${diag}\nBuscá este digest en Vercel → Project → Deployments → (deployment actual) → Logs → Functions.`}
+      />
     );
   }
 }
