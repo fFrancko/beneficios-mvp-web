@@ -1,9 +1,6 @@
-import TestMembershipClient from "./TestMembershipClient";
+// app/app/page.tsx (Server Component)
+import { redirect } from "next/navigation";
 
-export default function AppHome() {
-  return (
-    <main className="p-4">
-      <TestMembershipClient />
-    </main>
-  );
+export default function AppIndex() {
+  redirect("/app/member");
 }
