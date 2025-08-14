@@ -5,7 +5,7 @@ import * as jose from "jose";
 import QRCode from "qrcode";
 import ClientQR from "./client-qr";
 import { headers } from "next/headers";
-import { createSupabaseServerClient } from "@/lib/supabaseServer";
+import { createSupabaseServerClient } from "../../../lib/supabaseServer";
 import { redirect } from "next/navigation";
 
 // Valida UUID en runtime
