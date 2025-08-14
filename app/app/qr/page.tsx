@@ -23,7 +23,7 @@ export default function QRRedirect() {
       }
 
       // Redirige a tu ruta existente /qr/[user]
-      router.replace(`/qr/${uid}`);
+      router.replace(`/app/qr/${uid}`);
     })();
   }, [router]);
 
