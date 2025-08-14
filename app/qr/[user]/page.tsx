@@ -1,23 +1,20 @@
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+import * as jose from "jose";
+import QRCode from "qrcode";
 import ClientQR from "./client-qr";
-import { issueQR } from "./actions";
 
-type Params = { user: string };
-
+// Valida UUID en runtime
 function isUUID(v: string) {
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
 }
 
-// Next 15 a veces pasa params como Promise<Params>
-async function resolveParams(p: Params | Promise<Params>): Promise<Params> {
-  return (p && typeof (p as any)?.then === "function") ? (p as Promise<Params>) : (p as Params);
-}
-
-export default async function QRPage(input: { params: Params | Promise<Params> }) {
-  const { user } = await resolveParams(input.params);
-  const userId = user;
+// ⚠️ Clave: no uses PageProps ni un tipo propio aquí.
+// Resolvemos params como Promise o objeto normal en runtime.
+export default async function QRPage(input: { params: any }) {
+  const rawParams = "then" in input.params ? await input.params : input.params;
+  const userId = String(rawParams?.user ?? "");
 
   if (!userId || !isUUID(userId)) {
     return (
@@ -32,17 +29,30 @@ export default async function QRPage(input: { params: Params | Promise<Params> }
     );
   }
 
-  // Primer QR (servidor)
-  const first = await issueQR(userId);
+  async function generateQR() {
+    const expMinutes = 5;
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+
+    const token = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject(userId)
+      .setExpirationTime(`${expMinutes}m`)
+      .sign(secret);
+
+    const base = process.env.BASE_URL || "";
+    const verifyUrl = `${base}/verify?t=${encodeURIComponent(token)}`;
+
+    const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, scale: 8 });
+    const expiresAt = new Date(Date.now() + expMinutes * 60_000).toISOString();
+
+    return { qrDataUrl, verifyUrl, expiresAt };
+  }
+
+  const initialQR = await generateQR();
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
-      <ClientQR
-        userId={userId}
-        initialSrc={first.src}
-        initialVerifyUrl={first.verifyUrl}
-        initialExpiresAt={first.expiresAt}
-      />
+      <ClientQR initialData={initialQR} regenerate={generateQR} />
     </div>
   );
 }
