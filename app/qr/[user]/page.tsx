@@ -1,20 +1,23 @@
-export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import * as jose from "jose";
 import QRCode from "qrcode";
 import ClientQR from "./client-qr";
 
-// Valida UUID en runtime
+type Params = { user: string };
+
 function isUUID(v: string) {
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
 }
 
-// ⚠️ Clave: no uses PageProps ni un tipo propio aquí.
-// Resolvemos params como Promise o objeto normal en runtime.
-export default async function QRPage(input: { params: any }) {
-  const rawParams = "then" in input.params ? await input.params : input.params;
-  const userId = String(rawParams?.user ?? "");
+export default async function QRPage({
+  params,
+}: {
+  params: Params | Promise<Params>;
+}) {
+  const p = await params; // Next 15: params puede venir como Promise
+  const userId = p.user;
 
   if (!userId || !isUUID(userId)) {
     return (
@@ -29,30 +32,51 @@ export default async function QRPage(input: { params: any }) {
     );
   }
 
-  async function generateQR() {
-    const expMinutes = 5;
-    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+  // Configuración inicial del QR
+  const expMinutes = 5;
+  const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
 
-    const token = await new jose.SignJWT({})
-      .setProtectedHeader({ alg: "HS256" })
-      .setSubject(userId)
-      .setExpirationTime(`${expMinutes}m`)
-      .sign(secret);
+  // Generamos token inicial (server) para primera renderización
+  const token = await new jose.SignJWT({})
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(userId)
+    .setExpirationTime(`${expMinutes}m`)
+    .sign(secret);
 
-    const base = process.env.BASE_URL || "";
-    const verifyUrl = `${base}/verify?t=${encodeURIComponent(token)}`;
+  const base = process.env.BASE_URL || "";
+  const verifyUrl = `${base}/verify?t=${encodeURIComponent(token)}`;
+  const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, scale: 8 });
 
-    const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, scale: 8 });
-    const expiresAt = new Date(Date.now() + expMinutes * 60_000).toISOString();
+  const expiresAtISO = new Date(Date.now() + expMinutes * 60_000).toISOString();
 
-    return { qrDataUrl, verifyUrl, expiresAt };
-  }
-
-  const initialQR = await generateQR();
-
+  // ⚠️ IMPORTANTE: NO pasar funciones. Solo datos serializables.
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
-      <ClientQR initialData={initialQR} regenerate={generateQR} />
+      <div className="w-full max-w-sm rounded-2xl p-5 border border-white/15 bg-black/40 shadow-2xl text-center">
+        <div className="text-sm opacity-70 mb-2">MULTICLASICOS — Mi QR</div>
+
+        <ClientQR
+          userId={userId}
+          initialVerifyUrl={verifyUrl}
+          initialQrDataUrl={qrDataUrl}
+          initialExpiresAtISO={expiresAtISO}
+          // tip: si querés micro‑delay anti‑spam, pasalo como número
+          minRegenerateDelayMs={800}
+        />
+
+        <div className="mt-5 flex gap-2 justify-center">
+          <a
+            href="/"
+            className="px-4 py-2 rounded-xl text-sm font-medium bg-white/5 hover:bg-white/10 border border-white/20"
+          >
+            Inicio
+          </a>
+        </div>
+
+        <p className="mt-3 text-[11px] opacity-60">
+          El QR expira en 5 minutos. Podés regenerarlo cuando quieras.
+        </p>
+      </div>
     </div>
   );
 }
