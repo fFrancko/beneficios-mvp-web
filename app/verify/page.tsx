@@ -1,6 +1,9 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 type VerifyOk =
@@ -8,7 +11,25 @@ type VerifyOk =
   | { ok: true; valid: false; reason: string; kind?: "db_token" | "jwt"; user_id?: string; expires_at?: string; now_iso: string };
 type VerifyErr = { ok: false; valid: false; reason: string; error?: string };
 
-export default function VerifyPage() {
+export default function Page() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <VerifyClient />
+    </Suspense>
+  );
+}
+
+function Loading() {
+  return (
+    <main className="min-h-screen grid place-items-center p-4 bg-neutral-950 text-neutral-100">
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900/60 p-5 text-center">
+        Verificando…
+      </div>
+    </main>
+  );
+}
+
+function VerifyClient() {
   const sp = useSearchParams();
   const router = useRouter();
   const [state, setState] = useState<VerifyOk | VerifyErr | null>(null);
@@ -25,8 +46,9 @@ export default function VerifyPage() {
       }
       setLoading(true);
       try {
-        // aceptamos ambos nombres, pero mandamos uno
-        const r = await fetch(`/api/verify?token=${encodeURIComponent(token)}`, { cache: "no-store" });
+        const r = await fetch(`/api/verify?token=${encodeURIComponent(token)}`, {
+          cache: "no-store",
+        });
         const j = (await r.json()) as VerifyOk | VerifyErr;
         setState(j);
       } catch (e: any) {
@@ -54,7 +76,6 @@ export default function VerifyPage() {
           <p className="text-sm opacity-70">Escaneá el QR del socio</p>
         </header>
 
-        {/* Resultado grande */}
         <div
           className={
             "rounded-xl p-5 text-center text-2xl font-bold border " +
@@ -66,7 +87,6 @@ export default function VerifyPage() {
           {loading ? "Verificando…" : valid ? "VÁLIDO" : "INVÁLIDO"}
         </div>
 
-        {/* Detalles */}
         <div className="mt-4 space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="opacity-70">Tipo</span>
@@ -87,7 +107,6 @@ export default function VerifyPage() {
             <span className="font-medium">{fmt((state as any)?.now_iso)}</span>
           </div>
 
-          {/* Razón de rechazo */}
           {!valid && !loading && state && "reason" in state && state.reason && (
             <div className="mt-2 p-3 rounded-lg text-rose-200 bg-rose-500/10 border border-rose-500/30">
               Motivo: <span className="font-mono">{state.reason}</span>
@@ -95,25 +114,19 @@ export default function VerifyPage() {
           )}
 
           <div className="flex gap-2 pt-2">
-            <button
-              onClick={() => router.refresh()}
-              className="flex-1 py-2 rounded-xl border border-white/20"
-            >
+            <button onClick={() => router.refresh()} className="flex-1 py-2 rounded-xl border border-white/20">
               Actualizar
             </button>
             <button
-              onClick={() => {
-                // Volver limpio para escanear otro QR
-                window.location.href = "/verify";
-              }}
+              onClick={() => (window.location.href = "/verify")}
               className="flex-1 py-2 rounded-xl border border-white/20"
             >
               Nuevo escaneo
             </button>
           </div>
 
-          <p className="text-xs opacity-60">
-            Este verificador acepta <code>?t=</code> o <code>?token=</code>.
+          <p className="text-xs opacity-60 mt-2">
+            Acepta <code>?t=</code> o <code>?token=</code>.
           </p>
         </div>
       </div>
