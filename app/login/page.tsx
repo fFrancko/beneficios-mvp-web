@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase"; // ✅ un solo cliente (sessionStorage)
+import Link from "next/link";
+import { supabase } from "@/lib/supabase"; // cliente único (sessionStorage)
 
 export default function LoginPage() {
   const router = useRouter();
@@ -84,7 +85,17 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-neutral-900/40 p-5 text-neutral-100">
-        <h1 className="text-xl font-semibold mb-4">Ingresar</h1>
+        {/* Encabezado con Volver (arriba derecha) */}
+        <div className="mb-4 flex items-center justify-between">
+          <h1 className="text-xl font-semibold">Ingresar</h1>
+          <Link
+            href="/"
+            className="rounded-xl border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10 active:scale-[0.98] transition"
+            title="Volver a la página principal"
+          >
+            Volver
+          </Link>
+        </div>
 
         <label className="block text-sm mb-1 opacity-80">Email</label>
         <input
