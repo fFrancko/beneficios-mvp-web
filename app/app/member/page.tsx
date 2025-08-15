@@ -1,8 +1,8 @@
 "use client";
 
-import { createClient } from "@supabase/supabase-js";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase"; // ✅ usa el cliente con sessionStorage
 
 type ApiResp = {
   status?: string;
@@ -28,16 +28,64 @@ function daysLeft(validUntil?: string | null, nowIso?: string) {
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
+/* =====================  Logout & Auto-logout ===================== */
+
+const LOGOUT_IDLE_MS = 15 * 60 * 1000; // 15 minutos
+
+function useDoLogout() {
+  const router = useRouter();
+
+  return useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      try { window.sessionStorage.clear(); } catch {}
+      try { window.localStorage.clear(); } catch {}
+      router.replace("/login");
+    }
+  }, [router]);
+}
+
+function useInactivityLogout(onLogout: () => void) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const reset = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(onLogout, LOGOUT_IDLE_MS);
+  }, [onLogout]);
+
+  useEffect(() => {
+    reset();
+
+    // Eventos del WINDOW
+    const windowEvents: (keyof WindowEventMap)[] = [
+      "mousemove",
+      "keydown",
+      "click",
+      "touchstart",
+      "scroll",
+    ];
+    const handler = () => reset();
+    windowEvents.forEach((ev) => window.addEventListener(ev, handler, { passive: true }));
+
+    // Evento del DOCUMENT
+    const onDocVisibility = () => reset();
+    document.addEventListener("visibilitychange", onDocVisibility);
+
+    return () => {
+      windowEvents.forEach((ev) => window.removeEventListener(ev, handler));
+      document.removeEventListener("visibilitychange", onDocVisibility);
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [reset]);
+}
+
+/* =====================  Página ===================== */
+
 export default function MemberPage() {
   const router = useRouter();
-  const supabase = useMemo(
-    () =>
-      createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      ),
-    []
-  );
+  const doLogout = useDoLogout();         // ← acción de logout
+  useInactivityLogout(doLogout);           // ← auto-logout por inactividad
 
   const [loading, setLoading] = useState(true);
   const [resp, setResp] = useState<ApiResp | null>(null);
@@ -45,7 +93,6 @@ export default function MemberPage() {
 
   // 1) Chequear sesión y cargar estado
   useEffect(() => {
-    let alive = true;
     (async () => {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
@@ -55,11 +102,7 @@ export default function MemberPage() {
       }
       await fetchState(token);
     })();
-    return () => {
-      alive = false;
-      // para TypeScript: no usamos alive luego, pero dejamos patrón por si extendés
-    };
-  }, [supabase, router]);
+  }, [router]);
 
   async function fetchState(token: string) {
     try {
@@ -92,9 +135,20 @@ export default function MemberPage() {
   return (
     <main className="min-h-screen p-4 bg-neutral-950 text-neutral-100">
       <div className="mx-auto w-full max-w-md">
-        <header className="mb-4">
-          <h1 className="text-xl font-semibold">Mi membresía</h1>
-          <p className="text-sm opacity-70">Estado y acceso a tu QR digital</p>
+        <header className="mb-4 flex items-start justify-between">
+          <div>
+            <h1 className="text-xl font-semibold">Mi membresía</h1>
+            <p className="text-sm opacity-70">Estado y acceso a tu QR digital</p>
+          </div>
+
+          {/* 🔒 Botón Cerrar Sesión (arriba derecha) */}
+          <button
+            onClick={doLogout}
+            className="ml-3 rounded-xl border border-rose-500/30 bg-rose-500/15 px-3 py-1.5 text-sm font-semibold hover:bg-rose-500/25 active:scale-[0.99] transition"
+            title="Cerrar sesión"
+          >
+            Cerrar sesión
+          </button>
         </header>
 
         {/* Estado */}
@@ -145,9 +199,7 @@ export default function MemberPage() {
             </div>
           )}
 
-          {loading && (
-            <div className="text-sm opacity-70">Cargando estado de membresía…</div>
-          )}
+          {loading && <div className="text-sm opacity-70">Cargando estado de membresía…</div>}
 
           <div className="flex gap-2 pt-2">
             <button
