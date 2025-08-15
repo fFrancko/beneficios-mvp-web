@@ -29,7 +29,7 @@ export default function QRPage() {
   const [imgDataUrl, setImgDataUrl] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
-  const [serverNowIso, setServerNowIso] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -67,7 +67,6 @@ export default function QRPage() {
 
       setLink(j.link_for_qr);
       setExpiresAt(j.expires_at);
-      setServerNowIso(j.now_iso);
 
       const dataUrl = await QRCode.toDataURL(j.link_for_qr, {
         margin: 1,
@@ -88,7 +87,7 @@ export default function QRPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     if (!expiresAt) return;
     if (timerRef.current) window.clearInterval(timerRef.current);
     timerRef.current = window.setInterval(() => {
@@ -96,7 +95,7 @@ export default function QRPage() {
       if (left <= 0) {
         fetchNewToken(); // expira → regenerar
       } else {
-        setServerNowIso((s) => s ?? new Date().toISOString()); // fuerza re-render p/contador
+        setTick((t) => (t + 1) % 1_000_000); // fuerza re-render cada segundo
       }
     }, 1000) as unknown as number;
 
