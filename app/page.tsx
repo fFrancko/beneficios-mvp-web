@@ -50,7 +50,7 @@ export default function Home() {
           </Link>
 
           <Link
-            href="/auth/login"
+            href="/login"
             className="block rounded-2xl border border-emerald-400/30 bg-emerald-500/15 px-5 py-4 text-lg font-semibold hover:bg-emerald-500/25 active:scale-[0.99] transition"
           >
             MIEMBROS
