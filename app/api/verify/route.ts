@@ -1,117 +1,104 @@
-// app/api/verify/route.ts
-export const runtime = "nodejs";
-
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
 import * as jose from "jose";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin"; // sube 3 niveles
 
-function isUUID(v: string) {
-  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
-}
-
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const t = url.searchParams.get("t");
-    if (!t) {
-      return NextResponse.json({ error: "missing_token", message: "Falta parámetro ?t=" }, { status: 400 });
+    const q = url.searchParams;
+    const raw = q.get("token") || q.get("t"); // acepta ?token=... y ?t=...
+
+    if (!raw) {
+      return NextResponse.json(
+        { ok: false, valid: false, reason: "missing_token" },
+        { status: 400 }
+      );
     }
 
-    // 1) Verificar JWT
-    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
-    let sub: string | undefined;
-    let tokenExp: number | undefined;
-
-    try {
-      const { payload } = await jose.jwtVerify(t, secret);
-      sub = payload.sub as string | undefined;
-      tokenExp = typeof payload.exp === "number" ? payload.exp : undefined;
-    } catch {
-      return NextResponse.json({ result: "invalid_token" }, { status: 200 });
-    }
-
-    if (!sub || !isUUID(sub)) {
-      return NextResponse.json({ result: "invalid_token_sub" }, { status: 200 });
-    }
-
-    // 2) Supabase (service role)
-    const admin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    // 3) Leer membresía
-    const { data: membership, error: memErr } = await admin
-      .from("memberships")
-      .select("status, valid_until, user_id")
-      .eq("user_id", sub)
-      .maybeSingle();
-
-    // Si la tabla no existe aún, devolvemos estado controlado
-    if (memErr && (memErr as any).code === "42P01") {
-      return NextResponse.json({
-        result: "expired",
-        member: { id: sub, full_name: null },
-        membership: { status: "unknown", valid_until: null },
-        token: { expires_at: tokenExp ? new Date(tokenExp * 1000).toISOString() : null },
-        now_iso: new Date().toISOString(),
-        note: "Tabla 'memberships' no creada todavía",
-      });
-    }
-    if (memErr) throw memErr;
-
-    // 4) Leer perfil (nombre)
-    const { data: profile, error: profErr } = await admin
-      .from("profiles")
-      .select("full_name")
-      .eq("id", sub)
-      .maybeSingle();
-
-    if (profErr && (profErr as any).code !== "42P01") throw profErr;
-
-    // 5) Determinar estado (activo/expirado)
     const now = new Date();
-    const validUntil = membership?.valid_until ? new Date(membership.valid_until) : null;
 
-    const isActive =
-      membership &&
-      membership.status === "active" &&
-      validUntil &&
-      validUntil > now;
-
-    const result = isActive ? "active" : "expired";
-
-    // 6) Registrar verificación (no bloqueante si falla)
+    // 1) Intentar validar como TOKEN EFÍMERO (tabla qr_tokens)
+    //    Usamos service role para evitar RLS (público no autenticado)
     try {
-      await admin.from("verifications").insert({
-        member_id: sub,
-        result,
-        verifier_ip: (req.headers.get("x-forwarded-for") || "").split(",")[0],
-        user_agent: req.headers.get("user-agent") || "",
-      });
-    } catch {
-      // ignoramos errores de logging
+      const sb = supabaseAdmin();
+      const { data: row, error } = await sb
+        .from("qr_tokens")
+        .select("user_id, expires_at, revoked, used_at")
+        .eq("token", raw)
+        .maybeSingle();
+
+      if (error && (error as any).code !== "42P01") throw error;
+
+      if (row) {
+        const expOk = new Date(row.expires_at).getTime() >= now.getTime();
+        const notRevoked = row.revoked !== true;
+        const notUsed = row.used_at == null; // si más adelante querés uso-único
+
+        if (expOk && notRevoked && notUsed) {
+          return NextResponse.json({
+            ok: true,
+            valid: true,
+            kind: "db_token",
+            user_id: row.user_id,
+            expires_at: row.expires_at,
+            now_iso: now.toISOString(),
+          });
+        } else {
+          return NextResponse.json({
+            ok: true,
+            valid: false,
+            kind: "db_token",
+            user_id: row.user_id,
+            expires_at: row.expires_at,
+            reason: !expOk
+              ? "expired"
+              : !notRevoked
+              ? "revoked"
+              : "already_used",
+            now_iso: now.toISOString(),
+          });
+        }
+      }
+    } catch (e) {
+      // seguimos al paso 2 (JWT), pero si querés loguear, podés hacerlo aquí
     }
 
-    // 7) Respuesta enriquecida
-    return NextResponse.json({
-      result, // "active" | "expired" | "invalid_token" | ...
-      member: {
-        id: sub,
-        full_name: profile?.full_name ?? null,
-      },
-      membership: {
-        status: membership?.status ?? "unknown",
-        valid_until: membership?.valid_until ?? null,
-      },
-      token: {
-        expires_at: tokenExp ? new Date(tokenExp * 1000).toISOString() : null,
-      },
-      now_iso: now.toISOString(),
-    });
+    // 2) Fallback: intentar como JWT legado (HS256 con subject=userId)
+    const secret = process.env.JWT_SECRET;
+    if (secret) {
+      try {
+        const { payload } = await jose.jwtVerify(raw, new TextEncoder().encode(secret));
+        const uid = String(payload.sub || "");
+        if (!uid) {
+          return NextResponse.json({
+            ok: true,
+            valid: false,
+            kind: "jwt",
+            reason: "missing_sub",
+            now_iso: now.toISOString(),
+          });
+        }
+        return NextResponse.json({
+          ok: true,
+          valid: true,
+          kind: "jwt",
+          user_id: uid,
+          // Nota: el exp del JWT ya fue validado por jose.jwtVerify
+          now_iso: now.toISOString(),
+        });
+      } catch (e) {
+        // cae a inválido definitivo
+      }
+    }
+
+    // 3) Nada coincidió
+    return NextResponse.json(
+      { ok: true, valid: false, reason: "invalid_or_malformed", now_iso: now.toISOString() },
+      { status: 400 }
+    );
   } catch (e: any) {
     return NextResponse.json(
-      { error: "server_error", message: e?.message ?? "unknown" },
+      { ok: false, valid: false, reason: "unexpected", error: e?.message },
       { status: 500 }
     );
   }
