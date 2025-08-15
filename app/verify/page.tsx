@@ -21,16 +21,6 @@ type VerifyResp =
     }
   | { ok: false; valid: false; reason: string; error?: string };
 
-function Loading() {
-  return (
-    <main className="min-h-screen grid place-items-center p-4 bg-neutral-950 text-neutral-100">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900/60 p-5 text-center">
-        Verificando…
-      </div>
-    </main>
-  );
-}
-
 function fmt(iso?: string | null) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -48,6 +38,15 @@ function ResultBadge({ valid }: { valid: boolean }) {
       {valid ? "VÁLIDO" : "INVÁLIDO"}
     </div>
   );
+}
+
+function parseTokenFromText(text: string): string | null {
+  try {
+    const u = new URL(text);
+    return u.searchParams.get("token") || u.searchParams.get("t");
+  } catch {
+    return text?.trim() || null;
+  }
 }
 
 function useVerifyApi() {
@@ -76,65 +75,74 @@ function useVerifyApi() {
   return { state, loading, verifyToken, refresh, lastTokenRef };
 }
 
-function parseTokenFromText(text: string): string | null {
-  try {
-    // Si es una URL, buscamos ?token o ?t
-    const u = new URL(text);
-    return u.searchParams.get("token") || u.searchParams.get("t");
-  } catch {
-    // Si no es URL, puede venir el token directo
-    return text?.trim() || null;
-  }
-}
-
 function VerifyClient() {
   const sp = useSearchParams();
   const tokenFromUrl = useMemo(() => sp.get("token") || sp.get("t") || "", [sp]);
 
   const { state, loading, verifyToken, refresh, lastTokenRef } = useVerifyApi();
 
-  // Cámara (html5-qrcode cargado dinámicamente)
+  // Cámara
   const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const html5QrRef = useRef<any>(null);
   const readerDivId = "qr-reader";
 
-  // Si viene token por URL, verificamos automáticamente
+  // Si la URL trae token, verificamos automáticamente
   useEffect(() => {
     if (tokenFromUrl) verifyToken(tokenFromUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenFromUrl]);
 
   async function startScanOnce() {
-    // Import dinámico para evitar problemas en SSR
-    const { Html5Qrcode } = await import("html5-qrcode");
-    const html5QrCode = new Html5Qrcode(readerDivId, { verbose: false });
-    html5QrRef.current = html5QrCode;
+    try {
+      setScanError(null);
+      // 1) Mostrar el contenedor primero para que exista en el DOM
+      setScanning(true);
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
 
-    setScanning(true);
+      // 2) Importar y crear el lector AHORA que el div ya existe
+      const { Html5Qrcode } = await import("html5-qrcode");
+      const html5QrCode = new Html5Qrcode(readerDivId, { verbose: false });
+      html5QrRef.current = html5QrCode;
 
-    const onSuccess = async (decodedText: string) => {
-      try {
-        const token = parseTokenFromText(decodedText);
-        // detenemos la cámara primero (para no “multiplicar” lecturas)
-        await stopScan();
-        if (token) {
-          await verifyToken(token);
+      const onSuccess = async (decodedText: string) => {
+        try {
+          const token = parseTokenFromText(decodedText);
+          await stopScan(); // apagar antes de verificar para “1 lectura por vez”
+          if (token) await verifyToken(token);
+        } catch (e: any) {
+          await stopScan();
+          setScanError(e?.message || "Error al procesar el QR");
         }
+      };
+
+      const onError = (_err: string) => {
+        // ignoramos errores de frame
+      };
+
+      // 3) Intentar usar cámara trasera; fallback si no existe
+      try {
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          onSuccess,
+          onError
+        );
       } catch {
-        await stopScan();
+        const devices = await Html5Qrcode.getCameras();
+        const camId = devices?.[0]?.id;
+        if (!camId) throw new Error("No se encontró cámara disponible");
+        await html5QrCode.start(
+          camId,
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          onSuccess,
+          onError
+        );
       }
-    };
-
-    const onError = (_err: string) => {
-      // ignoramos errores de decodificación por frame
-    };
-
-    await html5QrCode.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      onSuccess,
-      onError
-    );
+    } catch (e: any) {
+      setScanError(e?.message || "No se pudo iniciar la cámara. Verificá permisos y HTTPS.");
+      setScanning(false);
+    }
   }
 
   async function stopScan() {
@@ -163,20 +171,12 @@ function VerifyClient() {
         {/* Resultado */}
         <ResultBadge valid={valid} />
 
-        {/* Cámara */}
-        <div className="mt-4">
-          {!scanning ? (
-            <button onClick={startScanOnce} className="w-full py-2 rounded-xl border border-white/20">
-              Escanear nuevo
-            </button>
-          ) : (
-            <button onClick={stopScan} className="w-full py-2 rounded-xl border border-white/20">
-              Detener cámara
-            </button>
-          )}
-          {/* Contenedor del lector (solo visible al escanear) */}
-          {scanning && <div id={readerDivId} className="mt-3 rounded-lg overflow-hidden" />}
-        </div>
+        {/* Contenedor del lector (solo visible al escanear) */}
+        {scanning && <div id={readerDivId} className="mt-3 rounded-lg overflow-hidden" />}
+
+        {scanError && (
+          <div className="mt-3 text-sm p-3 rounded-lg bg-rose-500/15 border border-rose-500/30">{scanError}</div>
+        )}
 
         {/* Detalles */}
         <div className="mt-4 space-y-2 text-sm">
@@ -224,14 +224,10 @@ function VerifyClient() {
             <span className="font-medium">{fmt((state as any)?.expires_at)}</span>
           </div>
 
-          {!valid && state && "reason" in state && state.reason && (
-            <div className="mt-2 p-3 rounded-lg text-rose-200 bg-rose-500/10 border border-rose-500/30">
-              Motivo: <span className="font-mono">{state.reason}</span>
-            </div>
-          )}
-
+          {/* Acciones */}
           <div className="flex gap-2 pt-2">
             <button
+              type="button"
               onClick={refresh}
               disabled={!lastTokenRef.current || loading}
               className="flex-1 py-2 rounded-xl border border-white/20 disabled:opacity-50"
@@ -239,18 +235,39 @@ function VerifyClient() {
             >
               {loading ? "Verificando…" : "Actualizar"}
             </button>
-            <button
-              onClick={startScanOnce}
-              className="flex-1 py-2 rounded-xl border border-white/20"
-              title="Leer otro QR (enciende la cámara y se apaga al leer)"
-            >
-              Escanear nuevo
-            </button>
+
+            {!scanning ? (
+              <button
+                type="button"
+                onClick={startScanOnce}
+                className="flex-1 py-2 rounded-xl border border-white/20"
+                title="Leer otro QR (enciende la cámara y se apaga al leer)"
+              >
+                Escanear nuevo
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={stopScan}
+                className="flex-1 py-2 rounded-xl border border-white/20"
+                title="Detener cámara"
+              >
+                Detener cámara
+              </button>
+            )}
           </div>
 
           <p className="text-xs opacity-60 mt-2">La cámara se apaga automáticamente tras una lectura.</p>
         </div>
       </div>
+    </main>
+  );
+}
+
+function Loading() {
+  return (
+    <main className="min-h-screen grid place-items-center p-4 bg-neutral-950 text-neutral-100">
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900/60 p-5 text-center">Verificando…</div>
     </main>
   );
 }
