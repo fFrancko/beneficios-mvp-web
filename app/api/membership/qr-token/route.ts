@@ -45,38 +45,37 @@ export async function GET(req: NextRequest) {
     }
     const uid = userData.user.id;
 
-    // 2) Chequear membresía activa y sin vencer
+    // 2) Chequear membresía activa y sin vencer (tomamos la de mayor vigencia)
     const now = new Date();
     const { data: memb, error: membErr } = await supabase
       .from("memberships")
       .select("status, valid_until")
       .eq("user_id", uid)
+      // preferimos la membresía con mayor valid_until, y ante empate, la más reciente
+      .order("valid_until", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (membErr) {
-      // 42P01 = tabla no existe
       if ((membErr as any).code === "42P01") {
-        return NextResponse.json(
-          { ok: false, error: "memberships_missing" },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: "memberships_missing" }, { status: 500 });
       }
       throw membErr;
     }
 
-    const active =
-      memb?.status === "active" &&
+    const isActive =
+      (memb?.status === "active" || memb?.status === "trialing") &&
       memb?.valid_until &&
       new Date(memb.valid_until).getTime() >= now.getTime();
 
-    if (!active) {
+    if (!isActive) {
       return NextResponse.json(
         { ok: false, error: "membership_inactive_or_expired" },
         { status: 403 }
       );
     }
+
 
     // 3) Reutilizar token reciente si existe
     const reuseCutoff = new Date(now.getTime() - REUSE_WINDOW_SECONDS * 1000).toISOString();
