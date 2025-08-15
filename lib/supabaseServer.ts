@@ -3,13 +3,12 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 export async function createSupabaseServerClient() {
-  const cookieStore = await cookies(); // Next 15: es Promise
+  const cookieStore = await cookies(); // Next 15: Promise
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      // ✅ Nueva API (sin deprecations)
       cookies: {
         getAll() {
           return cookieStore.getAll();
@@ -17,13 +16,15 @@ export async function createSupabaseServerClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
-              // en RSC es readonly, por eso casteamos
-              (cookieStore as any).set(name, value, options);
+              // ✅ Forzamos cookies de sesión (sin expiración explícita)
+              const sessionOpts: any = { ...(options || {}) };
+              delete sessionOpts.maxAge;
+              delete sessionOpts.expires;
+              (cookieStore as any).set(name, value, sessionOpts);
             });
           } catch {}
         },
       },
-      // cookieEncoding: "base64url", // (opcional recomendado)
     }
   );
 }
