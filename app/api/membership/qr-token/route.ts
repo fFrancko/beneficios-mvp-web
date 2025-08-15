@@ -127,7 +127,9 @@ export async function GET(req: NextRequest) {
     }
 
     const site = originFrom(req);
-    const link_for_qr = `${site}/verify?token=${encodeURIComponent(token)}`;
+    const enc = encodeURIComponent(token);
+     // Enviamos ambos parámetros para ser compatibles con /verify viejito y el nuevo
+    const link_for_qr = `${site}/verify?t=${enc}&token=${enc}`;
 
     return NextResponse.json({
       ok: true,
