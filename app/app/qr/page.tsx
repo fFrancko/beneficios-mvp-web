@@ -27,6 +27,7 @@ export default function QRPage() {
 
   const [loading, setLoading] = useState(true);
   const [imgDataUrl, setImgDataUrl] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -66,6 +67,7 @@ export default function QRPage() {
       }
 
       setLink(j.link_for_qr);
+      setToken(j.token);
       setExpiresAt(j.expires_at);
 
       const dataUrl = await QRCode.toDataURL(j.link_for_qr, {
@@ -157,12 +159,19 @@ export default function QRPage() {
               <span className="font-medium">{fmtTimeShort(expiresAt)}</span>
             </div>
 
-            <div className="flex items-center justify-between">
-              <span className="opacity-70">Tiempo restante</span>
-              <span className="font-semibold">
-                {typeof secondsLeft === "number" ? `${secondsLeft}s` : "—"}
-              </span>
-            </div>
+             {token && (
+                <div className="text-[11px] mt-1 p-2 rounded-lg border border-white/10 bg-neutral-800/50 break-all">
+                  <div className="opacity-70 mb-1">Token (dev):</div>
+                  <code className="break-all">{token}</code>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(token)}
+                    className="mt-2 w-full py-1.5 rounded-lg border border-white/20"
+                    title="Copiar token efímero"
+                  >
+                    Copiar token
+                  </button>
+                </div>
+              )}
 
             {link && (
               <button
