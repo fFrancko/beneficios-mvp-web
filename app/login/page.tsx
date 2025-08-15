@@ -1,37 +1,34 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
-import { supabase } from '@/lib/supabase';
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase"; // ✅ un solo cliente (sessionStorage)
 
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = useMemo(
-    () =>
-      createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      ),
-    []
-  );
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true); // evita redirecciones prematuras
 
-  // Si ya hay sesión, mandamos a /app
+  // Si ya hay sesión, mandamos a /app/member
   useEffect(() => {
-    let mounted = true;
+    let alive = true;
     (async () => {
       const { data } = await supabase.auth.getSession();
-      if (mounted && data.session) router.replace("/app");
+      if (!alive) return;
+      if (data.session) {
+        router.replace("/app/member");
+      } else {
+        setChecking(false); // mostrar el formulario
+      }
     })();
     return () => {
-      mounted = false;
+      alive = false;
     };
-  }, [supabase, router]);
+  }, [router]);
 
   async function signIn() {
     try {
@@ -45,7 +42,7 @@ export default function LoginPage() {
         setMsg(error.message);
         return;
       }
-      router.replace("/app");
+      router.replace("/app/member");
     } catch (e: any) {
       setMsg(e?.message || "Error inesperado");
     } finally {
@@ -60,7 +57,7 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/app` },
+        options: { emailRedirectTo: `${window.location.origin}/app/member` },
       });
       if (error) {
         setMsg(error.message);
@@ -74,6 +71,14 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (checking) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-4 text-neutral-400">
+        Cargando…
+      </main>
+    );
   }
 
   return (
