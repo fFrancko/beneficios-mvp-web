@@ -102,10 +102,24 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, paymentId, status, warn: membErr.message });
       }
 
-      const base = memb?.valid_until && new Date(memb.valid_until).getTime() > now.getTime()
-        ? new Date(memb.valid_until)
-        : now;
-      const newValid = addDays(base, 30).toISOString();
+      // === 🔽 BLOQUE NUEVO: extensión según plan (mensual/anual) 🔽 ===
+
+      // Base para extender: el mayor entre la fecha vigente y ahora (no pisa días ya pagos)
+      const base =
+        memb?.valid_until && new Date(memb.valid_until).getTime() > now.getTime()
+          ? new Date(memb.valid_until)
+          : now;
+
+      // Plan según metadata definida en /api/payments/create
+      const plan: "mensual" | "anual" =
+        payment?.metadata?.plan === "anual" ? "anual" : "mensual";
+
+      // Días por plan (podés cambiar 365 por 360 si preferís 12×30)
+      const extension_days = plan === "anual" ? 365 : 30;
+
+      const newValid = addDays(base, extension_days).toISOString();
+
+      // === 🔼 FIN BLOQUE NUEVO 🔼 ===
 
       if (memb?.id) {
         // Update: extender + marcar activo + último pago
@@ -136,8 +150,10 @@ export async function POST(req: Request) {
         userId,
         externalReference,
         payerEmail,
+        plan,                 // 👈 agregado para verificar
+        extension_days,       // 👈 agregado para verificar
         new_valid_until: newValid,
-        note: "Membresía extendida +30 días",
+        note: "Membresía extendida según plan",
       });
     }
 
