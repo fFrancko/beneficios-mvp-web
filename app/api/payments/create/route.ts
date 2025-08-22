@@ -64,8 +64,8 @@ export async function POST(req: Request) {
     const envMensual = Number(process.env.MP_PRICE_MENSUAL_ARS);
     const envAnual = Number(process.env.MP_PRICE_ANUAL_ARS);
     const PRICES = {
-      mensual: Number.isFinite(envMensual) && envMensual > 0 ? envMensual : 5000,
-      anual: Number.isFinite(envAnual) && envAnual > 0 ? envAnual : 50000,
+      mensual: Number.isFinite(envMensual) && envMensual > 0 ? envMensual : 9999999,
+      anual: Number.isFinite(envAnual) && envAnual > 0 ? envAnual : 9999999,
     } as const;
 
     const unit_price = PRICES[plan];
