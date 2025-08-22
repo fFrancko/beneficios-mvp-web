@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase"; // ✅ usa el cliente con sessionStorage
+import { supabase } from "@/lib/supabase"; // ✅ cliente con sessionStorage
 
 type ApiResp = {
   status?: string;
@@ -10,6 +10,14 @@ type ApiResp = {
   last_payment_at?: string | null;
   derived?: { result: "active" | "expired"; now_iso: string; note?: string };
   error?: string | { code?: string; message?: string };
+};
+
+type QrApiResp = {
+  ok: boolean;
+  token: string;
+  expires_at: string;
+  link_for_qr: string; // URL que debería apuntar a /verify
+  error?: string;
 };
 
 function fmtDate(iso?: string | null) {
@@ -88,6 +96,7 @@ export default function MemberPage() {
   useInactivityLogout(doLogout);           // ← auto-logout por inactividad
 
   const [loading, setLoading] = useState(true);
+  const [loadingQR, setLoadingQR] = useState(false);
   const [resp, setResp] = useState<ApiResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -126,6 +135,53 @@ export default function MemberPage() {
       setErr(e?.message || "Error de red");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Normaliza el link para que SIEMPRE sea público /verify (evita /app/verify)
+  function toPublicVerifyUrl(link: string) {
+    try {
+      const u = new URL(link, window.location.origin);
+      const origin = `${u.protocol}//${u.host}`;
+      const t = u.searchParams.get("t") || u.searchParams.get("token") || "";
+      const tok = u.searchParams.get("token") || u.searchParams.get("t") || "";
+      const qs = new URLSearchParams();
+      if (t) qs.set("t", t);
+      if (tok) qs.set("token", tok);
+      return `${origin}/verify?${qs.toString()}`;
+    } catch {
+      return link;
+    }
+  }
+
+  async function handleShowQR() {
+    try {
+      setLoadingQR(true);
+
+      const { data } = await supabase.auth.getSession();
+      const jwt = data.session?.access_token;
+      if (!jwt) {
+        router.push("/login");
+        return;
+      }
+
+      const res = await fetch("/api/membership/qr-token", {
+        headers: { Authorization: `Bearer ${jwt}` },
+        cache: "no-store",
+      });
+
+      const json = (await res.json()) as Partial<QrApiResp>;
+      if (!res.ok || !json?.ok || !json.link_for_qr) {
+        alert((json && "error" in json && json.error) || "No se pudo generar el QR");
+        return;
+      }
+
+      // Abrimos el link público /verify
+      window.location.href = toPublicVerifyUrl(json.link_for_qr);
+    } catch {
+      alert("Error inesperado generando el QR");
+    } finally {
+      setLoadingQR(false);
     }
   }
 
@@ -214,12 +270,12 @@ export default function MemberPage() {
             </button>
 
             <button
-              onClick={() => (active ? router.push("/app/qr") : null)}
-              disabled={!active}
+              onClick={handleShowQR}
+              disabled={!active || loadingQR}
               className="flex-1 py-2 rounded-xl border border-white/20 disabled:opacity-50"
               title={active ? "Abrir mi QR" : "Necesitás membresía activa"}
             >
-              Mostrar mi QR
+              {loadingQR ? "Generando..." : "Mostrar mi QR"}
             </button>
           </div>
         </div>
