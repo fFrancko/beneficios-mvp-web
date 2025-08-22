@@ -107,9 +107,9 @@ export default function MemberPage() {
 
   // precios visibles (solo UI). La seguridad del precio la controla el servidor.
   const priceMensual =
-    Number(process.env.NEXT_PUBLIC_PRICE_MENSUAL_ARS ?? 5000);
+    Number(process.env.NEXT_PUBLIC_PRICE_MENSUAL_ARS ?? 9999999);
   const priceAnual =
-    Number(process.env.NEXT_PUBLIC_PRICE_ANUAL_ARS ?? 50000);
+    Number(process.env.NEXT_PUBLIC_PRICE_ANUAL_ARS ?? 9999999);
   const fmtARS = (n: number) =>
     new Intl.NumberFormat("es-AR", {
       style: "currency",
