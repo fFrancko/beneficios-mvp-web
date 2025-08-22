@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase"; // ✅ cliente con sessionStorage
+import { supabase } from "@/lib/supabase"; // ✅ usa el cliente con sessionStorage
 
 type ApiResp = {
   status?: string;
@@ -12,19 +12,15 @@ type ApiResp = {
   error?: string | { code?: string; message?: string };
 };
 
-type QrApiResp = {
-  ok: boolean;
-  token: string;
-  expires_at: string;
-  link_for_qr: string; // URL que debería apuntar a /verify
-  error?: string;
-};
-
 function fmtDate(iso?: string | null) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function daysLeft(validUntil?: string | null, nowIso?: string) {
@@ -47,8 +43,12 @@ function useDoLogout() {
     try {
       await supabase.auth.signOut();
     } finally {
-      try { window.sessionStorage.clear(); } catch {}
-      try { window.localStorage.clear(); } catch {}
+      try {
+        window.sessionStorage.clear();
+      } catch {}
+      try {
+        window.localStorage.clear();
+      } catch {}
       router.replace("/login");
     }
   }, [router]);
@@ -74,7 +74,9 @@ function useInactivityLogout(onLogout: () => void) {
       "scroll",
     ];
     const handler = () => reset();
-    windowEvents.forEach((ev) => window.addEventListener(ev, handler, { passive: true }));
+    windowEvents.forEach((ev) =>
+      window.addEventListener(ev, handler, { passive: true })
+    );
 
     // Evento del DOCUMENT
     const onDocVisibility = () => reset();
@@ -92,11 +94,10 @@ function useInactivityLogout(onLogout: () => void) {
 
 export default function MemberPage() {
   const router = useRouter();
-  const doLogout = useDoLogout();         // ← acción de logout
-  useInactivityLogout(doLogout);           // ← auto-logout por inactividad
+  const doLogout = useDoLogout(); // ← acción de logout
+  useInactivityLogout(doLogout); // ← auto-logout por inactividad
 
   const [loading, setLoading] = useState(true);
-  const [loadingQR, setLoadingQR] = useState(false);
   const [resp, setResp] = useState<ApiResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -135,53 +136,6 @@ export default function MemberPage() {
       setErr(e?.message || "Error de red");
     } finally {
       setLoading(false);
-    }
-  }
-
-  // Normaliza el link para que SIEMPRE sea público /verify (evita /app/verify)
-  function toPublicVerifyUrl(link: string) {
-    try {
-      const u = new URL(link, window.location.origin);
-      const origin = `${u.protocol}//${u.host}`;
-      const t = u.searchParams.get("t") || u.searchParams.get("token") || "";
-      const tok = u.searchParams.get("token") || u.searchParams.get("t") || "";
-      const qs = new URLSearchParams();
-      if (t) qs.set("t", t);
-      if (tok) qs.set("token", tok);
-      return `${origin}/verify?${qs.toString()}`;
-    } catch {
-      return link;
-    }
-  }
-
-  async function handleShowQR() {
-    try {
-      setLoadingQR(true);
-
-      const { data } = await supabase.auth.getSession();
-      const jwt = data.session?.access_token;
-      if (!jwt) {
-        router.push("/login");
-        return;
-      }
-
-      const res = await fetch("/api/membership/qr-token", {
-        headers: { Authorization: `Bearer ${jwt}` },
-        cache: "no-store",
-      });
-
-      const json = (await res.json()) as Partial<QrApiResp>;
-      if (!res.ok || !json?.ok || !json.link_for_qr) {
-        alert((json && "error" in json && json.error) || "No se pudo generar el QR");
-        return;
-      }
-
-      // Abrimos el link público /verify
-      window.location.href = toPublicVerifyUrl(json.link_for_qr);
-    } catch {
-      alert("Error inesperado generando el QR");
-    } finally {
-      setLoadingQR(false);
     }
   }
 
@@ -245,7 +199,8 @@ export default function MemberPage() {
 
           {!active && (
             <div className="mt-1 text-xs p-2 rounded-lg border bg-rose-500/10 border-rose-500/30 text-rose-200">
-              Tu membresía está vencida. {resp?.derived?.note ? `(${resp.derived.note})` : ""}
+              Tu membresía está vencida.{" "}
+              {resp?.derived?.note ? `(${resp.derived.note})` : ""}
             </div>
           )}
 
@@ -255,7 +210,11 @@ export default function MemberPage() {
             </div>
           )}
 
-          {loading && <div className="text-sm opacity-70">Cargando estado de membresía…</div>}
+          {loading && (
+            <div className="text-sm opacity-70">
+              Cargando estado de membresía…
+            </div>
+          )}
 
           <div className="flex gap-2 pt-2">
             <button
@@ -270,12 +229,12 @@ export default function MemberPage() {
             </button>
 
             <button
-              onClick={handleShowQR}
-              disabled={!active || loadingQR}
+              onClick={() => (active ? router.push("/app/qr") : null)}
+              disabled={!active}
               className="flex-1 py-2 rounded-xl border border-white/20 disabled:opacity-50"
               title={active ? "Abrir mi QR" : "Necesitás membresía activa"}
             >
-              {loadingQR ? "Generando..." : "Mostrar mi QR"}
+              Mostrar mi QR
             </button>
           </div>
         </div>
@@ -286,7 +245,8 @@ export default function MemberPage() {
           {resp?.status && (
             <>
               {" "}
-              · Estado del sistema: <span className="opacity-90">{resp.status}</span>
+              · Estado del sistema:{" "}
+              <span className="opacity-90">{resp.status}</span>
             </>
           )}
         </div>
