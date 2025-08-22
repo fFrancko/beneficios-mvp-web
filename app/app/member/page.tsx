@@ -98,9 +98,24 @@ export default function MemberPage() {
   useInactivityLogout(doLogout); // ← auto-logout por inactividad
 
   const [loading, setLoading] = useState(true);
-  const [loadingPay, setLoadingPay] = useState(false);
+  const [loadingPay, setLoadingPay] = useState<false | "mensual" | "anual">(false);
   const [resp, setResp] = useState<ApiResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // selector de plan
+  const [showPlans, setShowPlans] = useState(false);
+
+  // precios visibles (solo UI). La seguridad del precio la controla el servidor.
+  const priceMensual =
+    Number(process.env.NEXT_PUBLIC_PRICE_MENSUAL_ARS ?? 5000);
+  const priceAnual =
+    Number(process.env.NEXT_PUBLIC_PRICE_ANUAL_ARS ?? 50000);
+  const fmtARS = (n: number) =>
+    new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: "ARS",
+      maximumFractionDigits: 0,
+    }).format(n);
 
   // 1) Chequear sesión y cargar estado
   useEffect(() => {
@@ -141,9 +156,9 @@ export default function MemberPage() {
   }
 
   // 👉 Inicia flujo de pago (Mercado Pago) y redirige a init_point
-  async function handleRenew() {
+  async function startCheckout(plan: "mensual" | "anual") {
     try {
-      setLoadingPay(true);
+      setLoadingPay(plan);
       const { data } = await supabase.auth.getSession();
       const jwt = data.session?.access_token;
       if (!jwt) {
@@ -157,12 +172,7 @@ export default function MemberPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${jwt}`,
         },
-        // Podés omitir body para usar los defaults del backend;
-        // dejo un título por claridad:
-        body: JSON.stringify({
-          title: "Membresía mensual",
-          quantity: 1,
-        }),
+        body: JSON.stringify({ plan }), // 🔒 el backend define el precio
       });
 
       const json = await res.json();
@@ -257,38 +267,77 @@ export default function MemberPage() {
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2 pt-2">
-            <button
-              onClick={async () => {
-                const { data } = await supabase.auth.getSession();
-                const token = data.session?.access_token;
-                if (token) await fetchState(token);
-              }}
-              className="flex-1 py-2 rounded-xl border border-white/20"
-            >
-              Actualizar
-            </button>
-
-            {/* Mostrar QR solo si está activa */}
-            <button
-              onClick={() => (active ? router.push("/app/qr") : null)}
-              disabled={!active}
-              className="flex-1 py-2 rounded-xl border border-white/20 disabled:opacity-50"
-              title={active ? "Abrir mi QR" : "Necesitás membresía activa"}
-            >
-              Mostrar mi QR
-            </button>
-
-            {/* Renovar membresía cuando NO esté activa */}
-            {!active && (
+          <div className="flex flex-col gap-2 pt-2">
+            <div className="flex gap-2">
               <button
-                onClick={handleRenew}
-                disabled={loadingPay}
-                className="w-full py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-[0.99] transition"
-                title="Iniciar pago de membresía"
+                onClick={async () => {
+                  const { data } = await supabase.auth.getSession();
+                  const token = data.session?.access_token;
+                  if (token) await fetchState(token);
+                }}
+                className="flex-1 py-2 rounded-xl border border-white/20"
               >
-                {loadingPay ? "Redirigiendo a pago…" : "Renovar membresía"}
+                Actualizar
               </button>
+
+              {/* Mostrar QR solo si está activa */}
+              <button
+                onClick={() => (active ? router.push("/app/qr") : null)}
+                disabled={!active}
+                className="flex-1 py-2 rounded-xl border border-white/20 disabled:opacity-50"
+                title={active ? "Abrir mi QR" : "Necesitás membresía activa"}
+              >
+                Mostrar mi QR
+              </button>
+            </div>
+
+            {/* Selector de plan: solo si NO está activa */}
+            {!active && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                {!showPlans ? (
+                  <button
+                    onClick={() => setShowPlans(true)}
+                    className="w-full py-2 rounded-lg border border-emerald-500/40 hover:bg-emerald-500/20 active:scale-[0.99] transition"
+                    title="Elegir plan de renovación"
+                  >
+                    Renovar membresía
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="text-sm opacity-80">
+                      Elegí tu plan:
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        onClick={() => startCheckout("mensual")}
+                        disabled={loadingPay !== false}
+                        className="py-2 rounded-lg border border-white/20 hover:bg-white/10 active:scale-[0.99] transition"
+                        title="Renovar por 30 días"
+                      >
+                        {loadingPay === "mensual"
+                          ? "Redirigiendo…"
+                          : `Mensual · ${fmtARS(priceMensual)}`}
+                      </button>
+                      <button
+                        onClick={() => startCheckout("anual")}
+                        disabled={loadingPay !== false}
+                        className="py-2 rounded-lg border border-white/20 hover:bg-white/10 active:scale-[0.99] transition"
+                        title="Renovar por 12 meses"
+                      >
+                        {loadingPay === "anual"
+                          ? "Redirigiendo…"
+                          : `Anual · ${fmtARS(priceAnual)}`}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setShowPlans(false)}
+                      className="w-full py-2 rounded-lg border border-white/20 hover:bg-white/10"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
