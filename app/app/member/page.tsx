@@ -98,6 +98,7 @@ export default function MemberPage() {
   useInactivityLogout(doLogout); // ← auto-logout por inactividad
 
   const [loading, setLoading] = useState(true);
+  const [loadingPay, setLoadingPay] = useState(false);
   const [resp, setResp] = useState<ApiResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -136,6 +137,46 @@ export default function MemberPage() {
       setErr(e?.message || "Error de red");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // 👉 Inicia flujo de pago (Mercado Pago) y redirige a init_point
+  async function handleRenew() {
+    try {
+      setLoadingPay(true);
+      const { data } = await supabase.auth.getSession();
+      const jwt = data.session?.access_token;
+      if (!jwt) {
+        router.replace("/login");
+        return;
+      }
+
+      const res = await fetch("/api/payments/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jwt}`,
+        },
+        // Podés omitir body para usar los defaults del backend;
+        // dejo un título por claridad:
+        body: JSON.stringify({
+          title: "Membresía mensual",
+          quantity: 1,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.init_point) {
+        alert(json?.error || "No se pudo iniciar el pago");
+        return;
+      }
+
+      // Abrimos el checkout (mobile_init_point si existe, si no init_point)
+      window.location.href = json.mobile_init_point || json.init_point;
+    } catch (e) {
+      alert("Error iniciando el pago");
+    } finally {
+      setLoadingPay(false);
     }
   }
 
@@ -216,7 +257,7 @@ export default function MemberPage() {
             </div>
           )}
 
-          <div className="flex gap-2 pt-2">
+          <div className="flex flex-wrap gap-2 pt-2">
             <button
               onClick={async () => {
                 const { data } = await supabase.auth.getSession();
@@ -228,6 +269,7 @@ export default function MemberPage() {
               Actualizar
             </button>
 
+            {/* Mostrar QR solo si está activa */}
             <button
               onClick={() => (active ? router.push("/app/qr") : null)}
               disabled={!active}
@@ -236,6 +278,18 @@ export default function MemberPage() {
             >
               Mostrar mi QR
             </button>
+
+            {/* Renovar membresía cuando NO esté activa */}
+            {!active && (
+              <button
+                onClick={handleRenew}
+                disabled={loadingPay}
+                className="w-full py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-[0.99] transition"
+                title="Iniciar pago de membresía"
+              >
+                {loadingPay ? "Redirigiendo a pago…" : "Renovar membresía"}
+              </button>
+            )}
           </div>
         </div>
 
